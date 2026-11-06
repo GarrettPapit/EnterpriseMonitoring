@@ -1,0 +1,18 @@
+# .NET Build Outputs & Artifacts
+[Bb]in/
+[Oo]bj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+/app/
+publish/
+
+# Docker Volumes & Local Data
+sqldata/
+.env
+
+# OS Generated Files
+.DS_Store
+Thumbs.db

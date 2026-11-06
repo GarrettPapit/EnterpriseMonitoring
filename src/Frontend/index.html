@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Activity Monitoring System | Live Telemetry</title>
+    <!-- Tailwind CSS for rapid, modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Microsoft SignalR Client Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen p-8">
+    <div class="max-w-5xl mx-auto space-y-8">
+        
+        <!-- Header Banner -->
+        <header class="flex justify-between items-center border-b border-slate-800 pb-6">
+            <div>
+                <span class="text-xs font-mono uppercase tracking-widest text-emerald-400 bg-emerald-950/50 px-3 py-1 rounded-full border border-emerald-800/50">Live SignalR Feed</span>
+                <h1 class="text-3xl font-extrabold tracking-tight mt-2 text-white">Enterprise Activity Monitor</h1>
+                <p class="text-slate-400 text-sm mt-1">Real-time telemetry stream powered by .NET 8 WebSockets & Dapper backend.</p>
+            </div>
+            <div id="connection-badge" class="flex items-center gap-2 bg-rose-950/50 border border-rose-800/50 px-4 py-2 rounded-xl text-rose-400 text-sm font-mono">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                Disconnected
+            </div>
+        </header>
+
+        <!-- Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 backdrop-blur-xl">
+                <p class="text-xs uppercase font-mono text-slate-400 tracking-wider">Active Node</p>
+                <p id="metric-node" class="text-2xl font-bold mt-2 font-mono text-emerald-400">--</p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 backdrop-blur-xl">
+                <p class="text-xs uppercase font-mono text-slate-400 tracking-wider">CPU Utilization</p>
+                <p id="metric-cpu" class="text-2xl font-bold mt-2 font-mono text-sky-400">--</p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 backdrop-blur-xl">
+                <p class="text-xs uppercase font-mono text-slate-400 tracking-wider">Active WebSocket Conns</p>
+                <p id="metric-conns" class="text-2xl font-bold mt-2 font-mono text-indigo-400">--</p>
+            </div>
+        </div>
+
+        <!-- Live Telemetry Log Stream Table -->
+        <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 backdrop-blur-xl">
+            <h2 class="text-lg font-semibold text-white mb-4 flex items-center justify-between">
+                <span>Incoming Telemetry Stream</span>
+                <span class="text-xs font-mono text-slate-500">Auto-scrolling WebSocket stream</span>
+            </h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse font-mono text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-slate-400">
+                            <th class="py-3 px-4">Timestamp</th>
+                            <th class="py-3 px-4">Machine</th>
+                            <th class="py-3 px-4">Activity Type</th>
+                            <th class="py-3 px-4">Metrics Payload</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-stream" class="divide-y divide-slate-800/50 text-slate-300">
+                        <!-- Dynamic logs will appear here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- SignalR Client Connection Script -->
+    <script>
+        const badge = document.getElementById('connection-badge');
+        const nodeEl = document.getElementById('metric-node');
+        const cpuEl = document.getElementById('metric-cpu');
+        const connsEl = document.getElementById('metric-conns');
+        const logStream = document.getElementById('log-stream');
+
+        // Establish connection to the backend SignalR Hub
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("http://localhost:5000/hubs/monitoring")
+            .withAutomaticReconnect()
+            .build();
+
+        // Listen for the broadcasted telemetry packet from TelemetryBackgroundService
+        connection.on("ReceiveTelemetryUpdate", (data) => {
+            // Update metric cards
+            nodeEl.textContent = data.machineName;
+            cpuEl.textContent = data.cpuUsagePercent + "%";
+            connsEl.textContent = data.activeConnections;
+
+            // Prepend new log row to table
+            const row = document.createElement('tr');
+            row.className = "hover:bg-slate-800/40 transition-colors";
+            row.innerHTML = `
+                <td class="py-3 px-4 text-slate-400">${new Date(data.timestamp).toLocaleTimeString()}</td>
+                <td class="py-3 px-4 text-emerald-400">${data.machineName}</td>
+                <td class="py-3 px-4 text-sky-300">${data.activityType}</td>
+                <td class="py-3 px-4 text-slate-300">CPU: ${data.cpuUsagePercent}% | Conns: ${data.activeConnections}</td>
+            `;
+            logStream.prepend(row);
+
+            // Keep log list bounded to last 20 items
+            if (logStream.children.length > 20) {
+                logStream.lastElementChild.remove();
+            }
+        });
+
+        // Start connection
+        async function start() {
+            try {
+                await connection.start();
+                console.log("SignalR Connected Successfully.");
+                badge.className = "flex items-center gap-2 bg-emerald-950/50 border border-emerald-800/50 px-4 py-2 rounded-xl text-emerald-400 text-sm font-mono";
+                badge.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span> Connected (WS)';
+            } catch (err) {
+                console.error("SignalR Connection Failed: ", err);
+                setTimeout(start, 5000);
+            }
+        }
+
+        connection.onclose(() => {
+            badge.className = "flex items-center gap-2 bg-rose-950/50 border border-rose-800/50 px-4 py-2 rounded-xl text-rose-400 text-sm font-mono";
+            badge.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Reconnecting...';
+        });
+
+        start();
+    </script>
+</body>
+</html>
